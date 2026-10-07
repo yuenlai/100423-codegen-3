@@ -24,6 +24,26 @@
       </span>
     </p>
 
+    <p class="jig-legend">
+      <span class="jig-title">胎架占用（与小组立装配联动）：</span>
+      <span v-if="!jigs.length" class="legend-item">当前无占用</span>
+      <span v-for="item in jigs" :key="`${item.moduleKey}-${item.rowId}`" class="legend-item">
+        {{ item.jig }} · {{ item.moduleName }} {{ item.code }}（{{ item.status }}）
+      </span>
+    </p>
+
+    <form v-if="showCreate" class="filter-bar create-panel" @submit.prevent="submitCreate">
+      <label v-for="field in createFields" :key="field" class="filter-item">
+        <span>
+          {{ field }}
+          <i v-if="isRequired(field)" class="required-mark">*</i>
+        </span>
+        <input v-model="draft[field]" :placeholder="`填写${field}`" />
+      </label>
+      <button class="btn primary" type="submit">提交登记</button>
+      <button class="btn ghost" type="button" @click="closeCreate">取消</button>
+    </form>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -65,6 +85,7 @@
 
     <footer class="page-foot">
       <span>共 {{ total }} 条中组立焊接记录</span>
+      <span v-if="noticeMessage" class="ok-text">{{ noticeMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -74,23 +95,31 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  createEntry,
   downloadEntries,
+  jigOccupancy,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { EntryRow, JigOccupant } from '@/data/types'
 
 const meta = moduleMeta('assembly_medium')
-const columns = ["组立编号", "关联分段", "焊接方法", "焊材牌号", "预热温度", "焊工班组", "焊后处理", "组立状态"]
+const columns = ["组立编号", "关联分段", "占用胎架", "焊接方法", "焊材牌号", "预热温度", "焊工班组", "焊后处理", "组立状态"]
 const actions = ["开始组立", "完成焊接", "提交NDT"]
 const statuses = ["待组立", "组立中", "焊接中", "已完工", "待NDT"]
 const stats = [{"label": "待组立分段", "value": 0}, {"label": "组立中分段", "value": 0}, {"label": "待NDT分段", "value": 0}]
+// 登记表单去掉状态展示列，状态由流转动作维护
+const createFields = columns.filter((column) => !column.endsWith('状态'))
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const showCreate = ref(false)
+const draft = ref<Record<string, string>>({})
+const jigs = ref<JigOccupant[]>([])
 const filterFields = columns.slice(0, 3)
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
@@ -98,6 +127,10 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+function isRequired(field: string) {
+  return (meta.requiredFields ?? []).includes(field)
+}
 
 function resetFilters() {
   filters.value = {}
@@ -109,16 +142,39 @@ function exportRows() {
 }
 
 function openCreate() {
-  errorMessage.value = '中组立分段登记入口尚未接入审批流'
+  draft.value = {}
+  showCreate.value = true
+  errorMessage.value = ''
+  noticeMessage.value = ''
+}
+
+function closeCreate() {
+  showCreate.value = false
+  draft.value = {}
+}
+
+function submitCreate() {
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  const result = createEntry(meta.key, draft.value)
+  if (!result.ok) {
+    errorMessage.value = result.message
+    return
+  }
+  noticeMessage.value = result.message
+  closeCreate()
+  reload()
 }
 
 function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
+  noticeMessage.value = ''
   const result = applyAction(meta.key, Number(row.id), action)
   if (!result.ok) {
     errorMessage.value = result.message
     return
   }
+  noticeMessage.value = result.message
   reload()
 }
 
@@ -128,6 +184,7 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    jigs.value = jigOccupancy()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '中组立焊接列表读取失败'
   }

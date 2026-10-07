@@ -29,11 +29,26 @@ function readStorage(): Record<string, EntryRow[]> {
 
 let cache: Record<string, EntryRow[]> | null = null
 
+// 别的标签页一旦落库，本页的内存缓存立即作废，下次读取以 localStorage 为准。
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === STORAGE_KEY) {
+      cache = null
+    }
+  })
+}
+
 export function allRows(): Record<string, EntryRow[]> {
   if (cache === null) {
     cache = readStorage()
   }
   return cache
+}
+
+// 预约、流转这类要写库的操作先调它：绕过内存缓存直读最新落库数据，
+// 并发预约时才能保证只有先锁定的那一笔落库。
+export function refreshRows(): void {
+  cache = readStorage()
 }
 
 export function listRows(key: string): EntryRow[] {
