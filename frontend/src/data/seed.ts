@@ -134,6 +134,19 @@ export const SEED_ROWS: Record<string, EntryRow[]> = {
       "装配状态": "小组立装配样例3"
     }
   ],
+  "jig_occupancy": [
+    {
+      "id": 1,
+      "status": "占用中",
+      "pending": true,
+      "abnormal": false,
+      "胎架编号": "小组立装配样例2",
+      "占用构件": "ASSE-0002",
+      "占用来源": "小组立装配",
+      "预约时间": "2026-09-02 09:00:00",
+      "释放时间": ""
+    }
+  ],
   "assembly_medium": [
     {
       "id": 1,

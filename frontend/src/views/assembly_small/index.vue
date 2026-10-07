@@ -11,6 +11,21 @@
       </div>
     </header>
 
+    <form v-if="showCreate" class="create-panel" @submit.prevent="submitCreate">
+      <label v-for="field in createFields" :key="field" class="filter-item">
+        <span>{{ field }}</span>
+        <input
+          v-model="createForm[field]"
+          :type="field === '装配日期' ? 'date' : 'text'"
+          :placeholder="`填写${field}`"
+        />
+      </label>
+      <button class="btn primary" type="submit" :disabled="submitting">
+        {{ submitting ? '预约落库中…' : '提交登记并预约胎架' }}
+      </button>
+      <button class="btn ghost" type="button" @click="showCreate = false">取消</button>
+    </form>
+
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
@@ -46,15 +61,18 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
-            <button
-              v-for="action in actions"
-              :key="action"
-              class="link"
-              type="button"
-              @click="runAction(action, row)"
-            >
-              {{ action }}
-            </button>
+            <span v-if="row.status === '已报验'" class="archived-tag">已归档</span>
+            <template v-else>
+              <button
+                v-for="action in actions"
+                :key="action"
+                class="link"
+                type="button"
+                @click="runAction(action, row)"
+              >
+                {{ action }}
+              </button>
+            </template>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -65,6 +83,7 @@
 
     <footer class="page-foot">
       <span>共 {{ total }} 条小组立装配记录</span>
+      <span v-if="noticeMessage" class="notice-text">{{ noticeMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -74,23 +93,29 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  createAssemblySmallEntry,
   downloadEntries,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { AssemblySmallCreateInput, EntryRow } from '@/data/types'
 
 const meta = moduleMeta('assembly_small')
 const columns = ["构件编号", "关联分段", "构件类型", "装配胎架", "装配班组", "装配日期", "报验结果", "装配状态"]
 const actions = ["开始装配", "提交自检", "申请报验"]
 const statuses = ["待装配", "装配中", "自检合格", "已报验", "需返修"]
 const stats = [{"label": "待装配构件", "value": 0}, {"label": "装配中构件", "value": 0}, {"label": "报验通过数", "value": 0}]
+const createFields = ["构件编号", "关联分段", "构件类型", "装配胎架", "装配班组", "装配日期", "报验结果"] as const
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const showCreate = ref(false)
+const submitting = ref(false)
+const createForm = ref<AssemblySmallCreateInput>(blankCreateForm())
 const filterFields = columns.slice(0, 3)
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
@@ -98,6 +123,18 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+function blankCreateForm(): AssemblySmallCreateInput {
+  return {
+    构件编号: '',
+    关联分段: '',
+    构件类型: '',
+    装配胎架: '',
+    装配班组: '',
+    装配日期: new Date().toISOString().slice(0, 10),
+    报验结果: '未报验',
+  }
+}
 
 function resetFilters() {
   filters.value = {}
@@ -109,16 +146,42 @@ function exportRows() {
 }
 
 function openCreate() {
-  errorMessage.value = '小组立构件登记入口尚未接入审批流'
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  showCreate.value = !showCreate.value
+}
+
+async function submitCreate() {
+  if (submitting.value) {
+    return
+  }
+  submitting.value = true
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  try {
+    const result = await createAssemblySmallEntry(createForm.value)
+    if (!result.ok) {
+      errorMessage.value = result.message
+      return
+    }
+    noticeMessage.value = result.message
+    showCreate.value = false
+    createForm.value = blankCreateForm()
+    reload()
+  } finally {
+    submitting.value = false
+  }
 }
 
 function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
+  noticeMessage.value = ''
   const result = applyAction(meta.key, Number(row.id), action)
   if (!result.ok) {
     errorMessage.value = result.message
     return
   }
+  noticeMessage.value = result.message
   reload()
 }
 

@@ -67,18 +67,48 @@
       <span>共 {{ total }} 条中组立焊接记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
+
+    <section class="jig-panel">
+      <h3>胎架占用联动（小组立装配链路）</h3>
+      <p class="panel-desc">
+        焊接链路与小组立装配共用胎架位：占用中的胎架不可再排产，构件报验归档后胎架位自动释放。
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in jigColumns" :key="column">{{ column }}</th>
+            <th>占用状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="jig in jigRows" :key="String(jig.id)">
+            <td v-for="column in jigColumns" :key="column">{{ jig[column] || '—' }}</td>
+            <td>
+              <span class="legend-item" :class="{ 'jig-busy': jig.status === '占用中' }">
+                {{ jig.status }}
+              </span>
+            </td>
+          </tr>
+          <tr v-if="!jigRows.length">
+            <td :colspan="jigColumns.length + 1" class="empty-state">暂无胎架占用记录</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import {
   downloadEntries,
   listEntries,
+  listJigOccupancy,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { storageKey } from '@/data/local-store'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('assembly_medium')
@@ -86,11 +116,13 @@ const columns = ["组立编号", "关联分段", "焊接方法", "焊材牌号",
 const actions = ["开始组立", "完成焊接", "提交NDT"]
 const statuses = ["待组立", "组立中", "焊接中", "已完工", "待NDT"]
 const stats = [{"label": "待组立分段", "value": 0}, {"label": "组立中分段", "value": 0}, {"label": "待NDT分段", "value": 0}]
+const jigColumns = ["胎架编号", "占用构件", "占用来源", "预约时间", "释放时间"]
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const jigRows = ref<EntryRow[]>([])
 const filterFields = columns.slice(0, 3)
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
@@ -122,16 +154,35 @@ function runAction(action: string, row: EntryRow) {
   reload()
 }
 
+function reloadJigs() {
+  jigRows.value = listJigOccupancy()
+}
+
+// 联动胎架占用：小组立链路在其他标签页预约/释放胎架时，这里跟着刷新。
+function onStorage(event: StorageEvent) {
+  if (event.key === storageKey()) {
+    reloadJigs()
+  }
+}
+
 function reload() {
   errorMessage.value = ''
   try {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    reloadJigs()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '中组立焊接列表读取失败'
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  reload()
+  window.addEventListener('storage', onStorage)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('storage', onStorage)
+})
 </script>

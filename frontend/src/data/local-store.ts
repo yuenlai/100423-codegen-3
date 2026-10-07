@@ -40,6 +40,14 @@ export function listRows(key: string): EntryRow[] {
   return allRows()[key] ?? []
 }
 
+// 强制重读 localStorage：预约胎架的锁内调用，保证看到其他标签页刚落库的占用记录。
+export function reloadFromStorage(): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return
+  }
+  cache = readStorage()
+}
+
 export function saveRows(key: string, rows: EntryRow[]): void {
   const next = { ...allRows(), [key]: rows }
   cache = next
